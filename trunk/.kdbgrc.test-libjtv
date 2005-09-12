@@ -1,0 +1,38 @@
+[Breakpoint 0]
+Enabled=true
+File=test-libjtv.cpp
+Line=45
+Temporary=false
+
+[Breakpoint 1]
+Enabled=true
+File=test-libjtv.c
+Line=30
+Temporary=false
+
+[Breakpoint 2]
+Enabled=true
+File=libjtv.cpp
+Line=157
+Temporary=false
+
+[General]
+DebuggerCmdStr=
+DriverName=GDB
+FileVersion=1
+OptionsSelected=
+ProgramArgs=zzz.zip
+TTYLevel=7
+WorkingDirectory=
+
+[Memory]
+ColumnWidths=80,0
+Expression1=0x8053368
+Expression2=0x80500a8
+Expression3=0x8078560
+Expression4=ae
+Format1=17
+Format2=17
+Format3=19
+Format4=19
+NumExprs=4
