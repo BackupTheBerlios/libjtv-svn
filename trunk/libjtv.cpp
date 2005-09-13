@@ -63,6 +63,7 @@ char *GetChannelAlias(ch_alias_list *chl, char *ch_name, int *index)
       }
     }
 
+  if (index) *index = 0;
   return ch_name;
 }
 
@@ -139,7 +140,7 @@ tv_list *LoadJTV(char *fname, char *ch_alias)
   while((ae = jtvFile->GetFile(i)) != NULL)
   {
     char *fndx_name = jtvFile->GetFileName(ae);
-//    printf("%d. %s ",i, fndx_name);
+//    printf("%d. %s \n",i, fndx_name);
     if (strstr(fndx_name, ".ndx") != NULL)
     {
 //      printf ("processing %s...\n",fndx_name);

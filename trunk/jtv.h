@@ -10,7 +10,8 @@
 
 typedef struct {
   unsigned long long win_time;
-  unsigned long str_seek;
+  unsigned short str_seek;
+  unsigned short align;
 } PACKED NDX_RECORD;
 
 typedef struct {
