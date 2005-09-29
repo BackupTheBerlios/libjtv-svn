@@ -9,6 +9,28 @@
 #define TIME_T_ZERO 0x19DB1DED53E8000LL
 #define FILETIME_PER_SEC 10000000LL
 
+char *strnewcnv(iconv_t cnv, char *str)
+{
+  char *tmp = (char *) malloc(strlen(str) * 3);
+  if (tmp != NULL)
+  {
+    size_t in_buf_len = strlen (str) + 1;
+    size_t out_buf_len = in_buf_len * 3, cnv_bytes = 0, old_out_len = out_buf_len;
+    char *c_str = str;
+    char *o_str = tmp;
+
+    if ((cnv_bytes = iconv(cnv, &c_str, &in_buf_len,
+                           &o_str, &out_buf_len)) == 0)
+      tmp = (char*)realloc(tmp, old_out_len - out_buf_len);
+    else
+    {
+      free(tmp);
+      tmp = NULL;
+    }
+  }
+  return tmp;
+}
+
 time_t FileTime2Time_T(unsigned long long ftime)
 {
   return (time_t) ((ftime - TIME_T_ZERO) / FILETIME_PER_SEC);
@@ -47,7 +69,8 @@ ch_alias_list * LoadChannelAliasList(char *fname)
   return NULL;
 }
 
-char *GetChannelAlias(ch_alias_list *chl, char *ch_name, int *index)
+char *GetChannelAlias(ch_alias_list *chl, char *ch_name,
+                      int *index)
 {
   unsigned int i;
 
@@ -63,7 +86,7 @@ char *GetChannelAlias(ch_alias_list *chl, char *ch_name, int *index)
       }
     }
 
-  if (index) *index = 0;
+  if (index) *index = -1;
   return ch_name;
 }
 
@@ -75,7 +98,7 @@ void FreeChannelAliasList(ch_alias_list *ch_list)
   {
     for (i = 0; i < ch_list->num; i++)
     {
-      if (ch_list->cha[i].zip_name) free(ch_list->cha[i].zip_name);
+      if (ch_list->cha[i].zip_name)  free(ch_list->cha[i].zip_name);
       if (ch_list->cha[i].real_name) free(ch_list->cha[i].real_name);
     }
     free(ch_list);
@@ -87,8 +110,8 @@ void FreeJTV(tv_list *tvl)
   unsigned int i;
   for (i = 0; i < tvl->num; i++)
   {
-    delete [] tvl->tvp[i].ch_name;
-    delete [] tvl->tvp[i].prg_name;
+    free(tvl->tvp[i].ch_name);
+    free(tvl->tvp[i].prg_name);
   }
 
   if (tvl->tvp) free(tvl->tvp);
@@ -116,7 +139,7 @@ void ParseJTV(char *ch_name,
     tvl->tvp[sn].ch_index = ch_index;
 
     PDT_RECORD *pdt_rec = (PDT_RECORD *)(pdt_image + ndx_rec->str_seek);
-    tvl->tvp[sn].prg_name = new char[pdt_rec->sz_str + 1];
+    tvl->tvp[sn].prg_name = (char*)malloc(pdt_rec->sz_str + 1);
     strncpy(tvl->tvp[sn].prg_name, pdt_rec->str, pdt_rec->sz_str);
     tvl->tvp[sn].prg_name[pdt_rec->sz_str] = 0;
 
@@ -128,7 +151,7 @@ void ParseJTV(char *ch_name,
 
 tv_list tvl = { 0, NULL };
 
-tv_list *LoadJTV(char *fname, char *ch_alias)
+tv_list *LoadJTV(char *fname, char *ch_alias, iconv_t cnv_zip_fn)
 {
   csArchive *jtvFile = new csArchive(fname);
 
@@ -161,7 +184,7 @@ tv_list *LoadJTV(char *fname, char *ch_alias)
           if ((pdt_image = jtvFile->Read(fpdt_name, &pdt_size)) != NULL &&
               pdt_size != 0)
           {
-            char *ch_name = strnew(fpdt_name);
+            char *ch_name = strnewcnv(cnv_zip_fn, fpdt_name);
             char *c = strstr(ch_name,".pdt");
             *c = 0;
             int ch_index;
@@ -170,7 +193,7 @@ tv_list *LoadJTV(char *fname, char *ch_alias)
 
             ParseJTV(alias, ndx_image, ndx_size, pdt_image, pdt_size, &tvl, ch_index);
 
-            delete [] ch_name;
+            if (ch_name) free(ch_name);
             delete [] pdt_image;
           }
 
@@ -179,11 +202,12 @@ tv_list *LoadJTV(char *fname, char *ch_alias)
 
       }
 
-      delete [] fpdt_name;
+      free(fpdt_name);
     }
 
     i++;
   }
+  FreeChannelAliasList(chl);
   delete jtvFile;
   return &tvl;
 }

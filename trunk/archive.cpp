@@ -68,7 +68,7 @@ csArchive::csArchive (const char *filename)
 
 csArchive::~csArchive ()
 {
-  delete [] filename;
+  free (filename);
   delete [] comment;
   if (file) fclose (file);
 }
