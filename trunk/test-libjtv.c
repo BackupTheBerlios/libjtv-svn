@@ -17,27 +17,29 @@ int main(int argc, char *argv[])
    return 0;
   }
 
+  ch_alias_list *chl = LoadChannelAliasList(CHANNEL_ALIAS_LIST);
+
   setlocale(LC_ALL,"");
   char *date_format = strnew(nl_langinfo(D_FMT));
   char *time_format = strnew(nl_langinfo(T_FMT));
 
-  iconv_t cnv1251 = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
-                               "CP1251");
-  if (cnv1251 == (iconv_t) -1)
+  iconv_t cnv_content = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
+                                   chl->cp_content);
+  if (cnv_content == (iconv_t) -1)
   {
     printf("Iconv open return %d error code\n", errno);
     return errno;
   }
 
-  iconv_t cnv866 = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
-                              "CP866");
-  if (cnv866 == (iconv_t) -1)
+  iconv_t cnv_zip_fn = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
+                                  chl->cp_zip_fn);
+  if (cnv_zip_fn == (iconv_t) -1)
   {
     printf("Iconv open return %d error code\n", errno);
     return errno;
   }
 
-  tv_list *tvl = LoadJTV(argv[1],"channel.alias.rc", cnv866);
+  tv_list *tvl = LoadJTV(argv[1],CHANNEL_ALIAS_LIST);
   unsigned int i;
   int cur_day = -1;
   char *cur_ch = "";
@@ -50,7 +52,7 @@ int main(int argc, char *argv[])
     if (strcmp(tvl->tvp[i].ch_name, cur_ch) != 0)
     {
       cur_ch = tvl->tvp[i].ch_name;
-      //printf("Channel %s : ", strnewcnv(cnv866,cur_ch));
+      //printf("Channel %s : ", strnewcnv(cnv_zip_fn,cur_ch));
       printf("Channel %s : ", cur_ch);
     }
 
@@ -63,13 +65,13 @@ int main(int argc, char *argv[])
     }
 
     strftime(tbuf,100,time_format,tmp);
-    pn = strnewcnv(cnv1251, tvl->tvp[i].prg_name);
+    pn = strnewcnv(cnv_content, tvl->tvp[i].prg_name);
     printf("%s %s\n",
            tbuf,pn);
     free(pn);
   }
   free(date_format);free(time_format);
-  iconv_close(cnv866);
-  iconv_close(cnv1251);
+  iconv_close(cnv_zip_fn);
+  iconv_close(cnv_content);
   FreeJTV(tvl);
 }

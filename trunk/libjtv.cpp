@@ -1,4 +1,5 @@
 #include <iconv.h>
+#include <langinfo.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include "cs/archive.h"
@@ -49,19 +50,29 @@ ch_alias_list * LoadChannelAliasList(char *fname)
     while (chl != NULL &&
            fscanf(in, "%250[^= ] = %250[^\n]\n",opt,val) == 2)
     {
-      
-      int sn = chl->num;
-      chl->num++;
+      if (strcmp(opt, "cp_zip_fn") == 0)
+        chl->cp_zip_fn = strnew(val);
+      else
+        if (strcmp(opt, "cp_content") == 0)
+          chl->cp_content = strnew(val);
+        else
+        {
+          int sn = chl->num;
+          chl->num++;
 
-      chl = (ch_alias_list *) realloc(chl,
-                                      chl->num * sizeof(ch_alias) +
-                                      sizeof(ch_alias_list));
-      if (chl)
-      {
-        chl->cha[sn].zip_name = strnew(opt);
-        chl->cha[sn].real_name = strnew(val);
-      }
+          chl = (ch_alias_list *) realloc(chl,
+                                          chl->num * sizeof(ch_alias) +
+                                          sizeof(ch_alias_list));
+          if (chl)
+          {
+            chl->cha[sn].zip_name = strnew(opt);
+            chl->cha[sn].real_name = strnew(val);
+          }
+        }
     }
+    if (chl->cp_zip_fn == NULL) chl->cp_zip_fn = strnew("CP866");
+    if (chl->cp_content == NULL) chl->cp_content = strnew("CP1251");
+
     fclose(in);
     return chl;
   }
@@ -101,6 +112,8 @@ void FreeChannelAliasList(ch_alias_list *ch_list)
       if (ch_list->cha[i].zip_name)  free(ch_list->cha[i].zip_name);
       if (ch_list->cha[i].real_name) free(ch_list->cha[i].real_name);
     }
+    if (ch_list->cp_zip_fn) free(ch_list->cp_zip_fn);
+    if (ch_list->cp_content) free(ch_list->cp_content);
     free(ch_list);
   }
 }
@@ -117,6 +130,8 @@ void FreeJTV(tv_list *tvl)
   if (tvl->tvp) free(tvl->tvp);
 }
 
+#define HOUR_SEC 3600
+
 void ParseJTV(char *ch_name,
               char *ndx_image, size_t ndx_size,
               char *pdt_image, size_t pdt_size,
@@ -130,12 +145,18 @@ void ParseJTV(char *ch_name,
   while (ndx_ptr < ndx_size)
   {
     unsigned int sn = tvl->num;
+    struct tm tmp;
     NDX_RECORD *ndx_rec = (NDX_RECORD *) (ndx_image + ndx_ptr);
 
     tvl->num++;
     tvl->tvp = (tv_program*)realloc(tvl->tvp, tvl->num * sizeof(tv_program));
     tvl->tvp[sn].ch_name = strnew(ch_name);
     tvl->tvp[sn].time = FileTime2Time_T(ndx_rec->win_time);
+
+    // correct by daylight saving time
+    gmtime_r(&tvl->tvp[sn].time, &tmp);
+    if (tmp.tm_isdst == 0) tvl->tvp[sn].time = tvl->tvp[sn].time + HOUR_SEC;
+
     tvl->tvp[sn].ch_index = ch_index;
 
     PDT_RECORD *pdt_rec = (PDT_RECORD *)(pdt_image + ndx_rec->str_seek);
@@ -151,61 +172,65 @@ void ParseJTV(char *ch_name,
 
 tv_list tvl = { 0, NULL };
 
-tv_list *LoadJTV(char *fname, char *ch_alias, iconv_t cnv_zip_fn)
+tv_list *LoadJTV(char *fname, char *ch_alias)
 {
   csArchive *jtvFile = new csArchive(fname);
 
   ch_alias_list *chl = LoadChannelAliasList(ch_alias);
-
-  int i = 0;
-  void *ae;
-  // while file in vector exist
-  while((ae = jtvFile->GetFile(i)) != NULL)
+  iconv_t cnv_zip_fn = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
+                                  chl->cp_zip_fn);
+  if (cnv_zip_fn != (iconv_t) -1)
   {
-    char *fndx_name = jtvFile->GetFileName(ae);
-//    printf("%d. %s \n",i, fndx_name);
-    if (strstr(fndx_name, ".ndx") != NULL)
+    int i = 0;
+    void *ae;
+    // while file in vector exist
+    while((ae = jtvFile->GetFile(i)) != NULL)
     {
-//      printf ("processing %s...\n",fndx_name);
-      char *fpdt_name = strnew(fndx_name);
-      strcpy(strstr(fpdt_name, ".ndx"), ".pdt");
-//      printf("generate %s\n",fpdt_name);
-
-      // 1. check files exist (both ndx and pdt)
-      if (jtvFile->FileExists(fndx_name, NULL) &&
-          jtvFile->FileExists(fpdt_name, NULL))
+      char *fndx_name = jtvFile->GetFileName(ae);
+      //    printf("%d. %s \n",i, fndx_name);
+      if (strstr(fndx_name, ".ndx") != NULL)
       {
-        // 2. read files into memory
-        size_t ndx_size = 0, pdt_size = 0;
-        char *ndx_image = NULL, *pdt_image = NULL;
-        if ((ndx_image = jtvFile->Read(fndx_name, &ndx_size)) != NULL &&
-            ndx_size != 0)
+        //      printf ("processing %s...\n",fndx_name);
+        char *fpdt_name = strnew(fndx_name);
+        strcpy(strstr(fpdt_name, ".ndx"), ".pdt");
+        //      printf("generate %s\n",fpdt_name);
+
+        // 1. check files exist (both ndx and pdt)
+        if (jtvFile->FileExists(fndx_name, NULL) &&
+            jtvFile->FileExists(fpdt_name, NULL))
         {
-          if ((pdt_image = jtvFile->Read(fpdt_name, &pdt_size)) != NULL &&
-              pdt_size != 0)
+          // 2. read files into memory
+          size_t ndx_size = 0, pdt_size = 0;
+          char *ndx_image = NULL, *pdt_image = NULL;
+          if ((ndx_image = jtvFile->Read(fndx_name, &ndx_size)) != NULL &&
+              ndx_size != 0)
           {
-            char *ch_name = strnewcnv(cnv_zip_fn, fpdt_name);
-            char *c = strstr(ch_name,".pdt");
-            *c = 0;
-            int ch_index;
-            char *alias = GetChannelAlias(chl, ch_name, &ch_index);
-//            printf("Channel name %s \n", ch_name);
+            if ((pdt_image = jtvFile->Read(fpdt_name, &pdt_size)) != NULL &&
+                pdt_size != 0)
+            {
+              char *ch_name = strnewcnv(cnv_zip_fn, fpdt_name);
+              char *c = strstr(ch_name,".pdt");
+              *c = 0;
+              int ch_index;
+              char *alias = GetChannelAlias(chl, ch_name, &ch_index);
+              //            printf("Channel name %s \n", ch_name);
 
-            ParseJTV(alias, ndx_image, ndx_size, pdt_image, pdt_size, &tvl, ch_index);
+              ParseJTV(alias, ndx_image, ndx_size, pdt_image, pdt_size, &tvl, ch_index);
 
-            if (ch_name) free(ch_name);
-            delete [] pdt_image;
+              if (ch_name) free(ch_name);
+              delete [] pdt_image;
+            }
+
+            delete [] ndx_image;
           }
 
-          delete [] ndx_image;
         }
 
+        free(fpdt_name);
       }
-
-      free(fpdt_name);
+      i++;
     }
-
-    i++;
+    iconv_close(cnv_zip_fn);
   }
   FreeChannelAliasList(chl);
   delete jtvFile;
