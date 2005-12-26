@@ -7,8 +7,9 @@
 #include "jtv.h"
 #include "libjtv.h"
 
-#define TIME_T_ZERO 0x19DB1DED53E8000LL
 #define FILETIME_PER_SEC 10000000LL
+#define TIME_T_ZERO 0x19DB1F7FA8BB800LL // zerotime(01-01-1970) for FILETIME type
+#define HOUR_SEC 3600
 
 char *strnewcnv(iconv_t cnv, char *str)
 {
@@ -32,9 +33,10 @@ char *strnewcnv(iconv_t cnv, char *str)
   return tmp;
 }
 
-time_t FileTime2Time_T(unsigned long long ftime)
+time_t FileTime2Time_T(unsigned long long ftime, int correctTZ)
 {
-  return (time_t) ((ftime - TIME_T_ZERO) / FILETIME_PER_SEC);
+  //(correctTZ * HOUR_SEC)
+  return (time_t) (((ftime - TIME_T_ZERO) / FILETIME_PER_SEC)+(correctTZ * HOUR_SEC));
 }
 
 ch_alias_list * LoadChannelAliasList(char *fname)
@@ -45,7 +47,12 @@ ch_alias_list * LoadChannelAliasList(char *fname)
   {
     char opt[256],val[256];
     ch_alias_list *chl = (ch_alias_list *) malloc(sizeof(ch_alias_list));
-    if (chl) chl->num = 0;
+    if (chl)
+    {
+      chl->num = 0;
+      chl->cp_zip_fn = NULL;
+      chl->cp_content = NULL;
+    }
 
     while (chl != NULL &&
            fscanf(in, "%250[^= ] = %250[^\n]\n",opt,val) == 2)
@@ -121,22 +128,25 @@ void FreeChannelAliasList(ch_alias_list *ch_list)
 void FreeJTV(tv_list *tvl)
 {
   unsigned int i;
-  for (i = 0; i < tvl->num; i++)
+  if (tvl)
   {
-    free(tvl->tvp[i].ch_name);
-    free(tvl->tvp[i].prg_name);
+    for (i = 0; i < tvl->num; i++)
+    {
+      free(tvl->tvp[i].ch_name);
+      free(tvl->tvp[i].prg_name);
+    }
+
+    if (tvl->tvp && tvl->num) free(tvl->tvp);
+    free(tvl);
   }
-
-  if (tvl->tvp) free(tvl->tvp);
 }
-
-#define HOUR_SEC 3600
 
 void ParseJTV(char *ch_name,
               char *ndx_image, size_t ndx_size,
               char *pdt_image, size_t pdt_size,
               tv_list *tvl,
-              int ch_index)
+              int ch_index,
+              int correctTZ)
 {
   size_t ndx_ptr = sizeof(NDX_HEADER);
   int i = 0;
@@ -151,11 +161,13 @@ void ParseJTV(char *ch_name,
     tvl->num++;
     tvl->tvp = (tv_program*)realloc(tvl->tvp, tvl->num * sizeof(tv_program));
     tvl->tvp[sn].ch_name = strnew(ch_name);
-    tvl->tvp[sn].time = FileTime2Time_T(ndx_rec->win_time);
+    tvl->tvp[sn].time = FileTime2Time_T(ndx_rec->win_time, correctTZ);
+    tvl->tvp[sn].etime = tvl->tvp[sn].time + 1;
 
     // correct by daylight saving time
-    gmtime_r(&tvl->tvp[sn].time, &tmp);
-    if (tmp.tm_isdst == 0) tvl->tvp[sn].time = tvl->tvp[sn].time + HOUR_SEC;
+    /*gmtime_r(&tvl->tvp[sn].time, &tmp);
+    tvl->tvp[sn].tm_isdst = tmp.tm_isdst;
+    if (tmp.tm_isdst == 0) tvl->tvp[sn].time = tvl->tvp[sn].time + HOUR_SEC;*/
 
     tvl->tvp[sn].ch_index = ch_index;
 
@@ -170,10 +182,12 @@ void ParseJTV(char *ch_name,
 //  printf("parse %d record\n",i);
 }
 
-tv_list tvl = { 0, NULL };
-
-tv_list *LoadJTV(char *fname, char *ch_alias)
+tv_list *LoadJTV(char *fname, char *ch_alias, int correctTZ)
 {
+  tv_list *tvl = (tv_list *)malloc(sizeof(tv_list));
+  if (!tvl) return NULL;
+  tvl->num = 0;
+  tvl->tvp = NULL;
   csArchive *jtvFile = new csArchive(fname);
 
   ch_alias_list *chl = LoadChannelAliasList(ch_alias);
@@ -215,7 +229,9 @@ tv_list *LoadJTV(char *fname, char *ch_alias)
               char *alias = GetChannelAlias(chl, ch_name, &ch_index);
               //            printf("Channel name %s \n", ch_name);
 
-              ParseJTV(alias, ndx_image, ndx_size, pdt_image, pdt_size, &tvl, ch_index);
+              ParseJTV(alias, ndx_image, ndx_size,
+                       pdt_image, pdt_size,
+                       tvl, ch_index, correctTZ);
 
               if (ch_name) free(ch_name);
               delete [] pdt_image;
@@ -230,9 +246,15 @@ tv_list *LoadJTV(char *fname, char *ch_alias)
       }
       i++;
     }
+
+    if (tvl->num)
+      for (i = 0; i< tvl->num - 1; i++)
+        if (tvl->tvp[i].ch_index == tvl->tvp[i + 1].ch_index)
+          tvl->tvp[i].etime = tvl->tvp[i + 1].time - 1;
+
     iconv_close(cnv_zip_fn);
   }
   FreeChannelAliasList(chl);
   delete jtvFile;
-  return &tvl;
+  return tvl;
 }

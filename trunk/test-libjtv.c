@@ -39,7 +39,7 @@ int main(int argc, char *argv[])
     return errno;
   }
 
-  tv_list *tvl = LoadJTV(argv[1],CHANNEL_ALIAS_LIST);
+  tv_list *tvl = LoadJTV(argv[1],CHANNEL_ALIAS_LIST, 0);
   unsigned int i;
   int cur_day = -1;
   char *cur_ch = "";
@@ -48,14 +48,14 @@ int main(int argc, char *argv[])
   {
     struct tm *tmp;
     char *pn;
-    tmp = gmtime(&tvl->tvp[i].time);
+    tmp = localtime(&tvl->tvp[i].time);
     if (strcmp(tvl->tvp[i].ch_name, cur_ch) != 0)
     {
       cur_ch = tvl->tvp[i].ch_name;
       //printf("Channel %s : ", strnewcnv(cnv_zip_fn,cur_ch));
       printf("Channel %s : ", cur_ch);
     }
-
+#if 1
     char tbuf[100];
     if (cur_day != tmp->tm_mday)
     {
@@ -69,6 +69,7 @@ int main(int argc, char *argv[])
     printf("%s %s\n",
            tbuf,pn);
     free(pn);
+#endif
   }
   free(date_format);free(time_format);
   iconv_close(cnv_zip_fn);
