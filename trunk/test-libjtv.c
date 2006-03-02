@@ -11,38 +11,45 @@
 
 int main(int argc, char *argv[])
 {
+  int ret = 0;
+
   if (argc != 2)
   {
    printf("Usage : test-jtv file_tvprog.zip\n");
-   return 0;
+   return ret;
   }
 
-  ch_alias_list *chl = LoadChannelAliasList(CHANNEL_ALIAS_LIST);
+  ch_alias_list *chl;
+  unsigned int i;
+  int cur_day = -1;
+  char *cur_ch = "";
+  iconv_t cnv_zip_fn, cnv_content;
+
+  //= LoadChannelAliasList(CHANNEL_ALIAS_LIST, NULL, NULL);
 
   setlocale(LC_ALL,"");
   char *date_format = strnew(nl_langinfo(D_FMT));
   char *time_format = strnew(nl_langinfo(T_FMT));
 
-  iconv_t cnv_content = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
+  tv_list *tvl = LoadJTV(argv[1],CHANNEL_ALIAS_LIST, 0, NULL, NULL, &chl);
+
+  cnv_content = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
                                    chl->cp_content);
   if (cnv_content == (iconv_t) -1)
   {
     printf("Iconv open return %d error code\n", errno);
-    return errno;
+    ret = errno;
+    goto g_free_jtv;
   }
 
-  iconv_t cnv_zip_fn = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
+  cnv_zip_fn = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
                                   chl->cp_zip_fn);
   if (cnv_zip_fn == (iconv_t) -1)
   {
     printf("Iconv open return %d error code\n", errno);
-    return errno;
+    ret = errno;
+    goto g_free_content;
   }
-
-  tv_list *tvl = LoadJTV(argv[1],CHANNEL_ALIAS_LIST, 0);
-  unsigned int i;
-  int cur_day = -1;
-  char *cur_ch = "";
 
   for (i = 0; i < tvl->num; i++)
   {
@@ -53,9 +60,9 @@ int main(int argc, char *argv[])
     {
       cur_ch = tvl->tvp[i].ch_name;
       //printf("Channel %s : ", strnewcnv(cnv_zip_fn,cur_ch));
-      printf("Channel %s : ", cur_ch);
+      printf("Channel %s\n", cur_ch);
     }
-#if 1
+#if 0
     char tbuf[100];
     if (cur_day != tmp->tm_mday)
     {
@@ -71,8 +78,12 @@ int main(int argc, char *argv[])
     free(pn);
 #endif
   }
-  free(date_format);free(time_format);
   iconv_close(cnv_zip_fn);
+  g_free_content:
   iconv_close(cnv_content);
+  g_free_jtv:
+  FreeChannelAliasList(chl);
   FreeJTV(tvl);
+  free(date_format);free(time_format);
+  return ret;
 }

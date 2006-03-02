@@ -19,3 +19,6 @@ $(PROJECT_TEST): $(PROJECT_TEST).o $(PROJECT_LIB)
 
 clean:
 	rm -f *.o *.a $(PROJECT_TEST)
+
+release:
+	tar -cf ../libjvt_release.tar archive.cpp cbase.cpp csvector.cpp csstrvec.cpp libjtv.cpp strnew.cpp test-libjtv.c

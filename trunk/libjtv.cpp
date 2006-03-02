@@ -22,7 +22,7 @@ char *strnewcnv(iconv_t cnv, char *str)
     char *o_str = tmp;
 
     if ((cnv_bytes = iconv(cnv, &c_str, &in_buf_len,
-                           &o_str, &out_buf_len)) == 0)
+                           &o_str, &out_buf_len)) != (size_t)(-1))
       tmp = (char*)realloc(tmp, old_out_len - out_buf_len);
     else
     {
@@ -36,10 +36,12 @@ char *strnewcnv(iconv_t cnv, char *str)
 time_t FileTime2Time_T(unsigned long long ftime, int correctTZ)
 {
   //(correctTZ * HOUR_SEC)
-  return (time_t) (((ftime - TIME_T_ZERO) / FILETIME_PER_SEC)+(correctTZ * HOUR_SEC));
+    return (time_t) (((ftime - TIME_T_ZERO) / FILETIME_PER_SEC)+(correctTZ * HOUR_SEC));
 }
 
-ch_alias_list * LoadChannelAliasList(char *fname)
+
+ch_alias_list * LoadChannelAliasList(char *fname,
+                                     char *ext_zip_fn, char *ext_content)
 {
   FILE *in = fopen(fname,"rb");
 
@@ -50,18 +52,25 @@ ch_alias_list * LoadChannelAliasList(char *fname)
     if (chl)
     {
       chl->num = 0;
-      chl->cp_zip_fn = NULL;
-      chl->cp_content = NULL;
+      chl->cp_flags = 0;
+      chl->cp_zip_fn = ext_zip_fn;
+      chl->cp_content = ext_content;
     }
 
     while (chl != NULL &&
            fscanf(in, "%250[^= ] = %250[^\n]\n",opt,val) == 2)
     {
       if (strcmp(opt, "cp_zip_fn") == 0)
+      {
         chl->cp_zip_fn = strnew(val);
+        chl->cp_flags |= CP_ZIP_FN_ALLOC;
+      }
       else
         if (strcmp(opt, "cp_content") == 0)
+        {
           chl->cp_content = strnew(val);
+          chl->cp_flags |= CP_CONTENT_ALLOC;
+        }
         else
         {
           int sn = chl->num;
@@ -119,8 +128,10 @@ void FreeChannelAliasList(ch_alias_list *ch_list)
       if (ch_list->cha[i].zip_name)  free(ch_list->cha[i].zip_name);
       if (ch_list->cha[i].real_name) free(ch_list->cha[i].real_name);
     }
-    if (ch_list->cp_zip_fn) free(ch_list->cp_zip_fn);
-    if (ch_list->cp_content) free(ch_list->cp_content);
+    if (ch_list->cp_zip_fn &&
+        (ch_list->cp_flags & CP_ZIP_FN_ALLOC)) free(ch_list->cp_zip_fn);
+    if (ch_list->cp_content &&
+        (ch_list->cp_flags & CP_CONTENT_ALLOC)) free(ch_list->cp_content);
     free(ch_list);
   }
 }
@@ -182,7 +193,9 @@ void ParseJTV(char *ch_name,
 //  printf("parse %d record\n",i);
 }
 
-tv_list *LoadJTV(char *fname, char *ch_alias, int correctTZ)
+tv_list *LoadJTV(char *fname, char *ch_alias, int correctTZ,
+                 char *cp_zin_fn, char *cp_content,
+                 ch_alias_list **out_chl)
 {
   tv_list *tvl = (tv_list *)malloc(sizeof(tv_list));
   if (!tvl) return NULL;
@@ -190,7 +203,8 @@ tv_list *LoadJTV(char *fname, char *ch_alias, int correctTZ)
   tvl->tvp = NULL;
   csArchive *jtvFile = new csArchive(fname);
 
-  ch_alias_list *chl = LoadChannelAliasList(ch_alias);
+  ch_alias_list *chl = LoadChannelAliasList(ch_alias, cp_zin_fn, cp_content);
+  if (out_chl) *out_chl = chl;
   iconv_t cnv_zip_fn = iconv_open(nl_langinfo(_NL_MESSAGES_CODESET),
                                   chl->cp_zip_fn);
   if (cnv_zip_fn != (iconv_t) -1)
@@ -223,17 +237,20 @@ tv_list *LoadJTV(char *fname, char *ch_alias, int correctTZ)
                 pdt_size != 0)
             {
               char *ch_name = strnewcnv(cnv_zip_fn, fpdt_name);
-              char *c = strstr(ch_name,".pdt");
-              *c = 0;
-              int ch_index;
-              char *alias = GetChannelAlias(chl, ch_name, &ch_index);
-              //            printf("Channel name %s \n", ch_name);
+              if (ch_name)
+              {
+                char *c = strstr(ch_name,".pdt");
+                *c = 0;
+                int ch_index;
+                char *alias = GetChannelAlias(chl, ch_name, &ch_index);
+                //            printf("Channel name %s \n", ch_name);
 
-              ParseJTV(alias, ndx_image, ndx_size,
-                       pdt_image, pdt_size,
-                       tvl, ch_index, correctTZ);
+                ParseJTV(alias, ndx_image, ndx_size,
+                         pdt_image, pdt_size,
+                         tvl, ch_index, correctTZ);
 
-              if (ch_name) free(ch_name);
+                free(ch_name);
+              }
               delete [] pdt_image;
             }
 
@@ -254,7 +271,7 @@ tv_list *LoadJTV(char *fname, char *ch_alias, int correctTZ)
 
     iconv_close(cnv_zip_fn);
   }
-  FreeChannelAliasList(chl);
+  //FreeChannelAliasList(chl);
   delete jtvFile;
   return tvl;
 }
